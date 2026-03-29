@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  tennis-app:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gemma3:27b}
