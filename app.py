@@ -1,16 +1,11 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, render_template_string
 import sqlite3
-import os
 import datetime
-import requests
+import os
 
 app = Flask(__name__)
 
 DB_PATH = "/tmp/players.db"
-
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://kurim.ithope.eu/v1")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gemma3:27b")
 
 HTML = """
 <!doctype html>
@@ -80,6 +75,11 @@ textarea { height:260px; background:#f8fbff; }
     margin-bottom:10px;
 }
 
+.player {
+    padding:10px;
+    border-bottom:1px solid #eee;
+}
+
 @media(max-width:900px){
     .grid{grid-template-columns:1fr;}
 }
@@ -147,9 +147,14 @@ textarea { height:260px; background:#f8fbff; }
 
 <div class="card">
 <h2>Hráči</h2>
+
 {% for p in players %}
-<div>{{ p["nickname"] }} – {{ p["city"] }} – {{ p["level"] }}</div>
+<div class="player">
+<b>{{ p["nickname"] }}</b> – {{ p["city"] }} – {{ p["level"] }}<br>
+🕒 {{ p["available_time"].replace("T"," ") }}
+</div>
 {% endfor %}
+
 </div>
 
 </div>
@@ -203,7 +208,6 @@ def find_match(player):
 
     return None, None
 
-# 🔥 TADY JE OPRAVENÁ ODPOVĚĎ
 def ai_match_message(player, match, diff):
     if not match:
         return (
