@@ -1,14 +1,14 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 import sqlite3
-import datetime
 import os
+import datetime
 import requests
 
 app = Flask(__name__)
 
 DB_PATH = "/tmp/players.db"
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://kurim.ithope.eu/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gemma3:27b")
 
@@ -17,52 +17,138 @@ HTML = """
 <html lang="cs">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tennis Partner Finder AI</title>
+
 <style>
-body { font-family: Arial; background:#f4f7fb; padding:20px; }
-.container { max-width:1000px; margin:auto; }
-.card { background:white; padding:20px; border-radius:12px; margin-bottom:20px; }
-input, select, textarea, button { width:100%; padding:10px; margin-top:10px; }
-button { background:#2563eb; color:white; border:none; }
-textarea { height:200px; }
+body { margin:0; font-family:Arial; background:#f4f7fb; }
+
+.container { max-width:1100px; margin:auto; padding:20px; }
+
+.hero {
+    background:linear-gradient(135deg,#0f172a,#1e3a8a);
+    color:white;
+    border-radius:20px;
+    padding:25px;
+    margin-bottom:20px;
+}
+
+.hero h1 { margin:0; font-size:32px; }
+
+.grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.card {
+    background:white;
+    border-radius:18px;
+    padding:20px;
+    box-shadow:0 10px 25px rgba(0,0,0,0.08);
+}
+
+label { font-weight:bold; margin-top:10px; display:block; }
+
+input, select, textarea {
+    width:100%;
+    padding:12px;
+    margin-top:5px;
+    border-radius:10px;
+    border:1px solid #ccc;
+}
+
+button {
+    margin-top:15px;
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:10px;
+    background:#2563eb;
+    color:white;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+textarea { height:260px; background:#f8fbff; }
+
+.success {
+    background:#e8f7ee;
+    color:#196c3b;
+    padding:10px;
+    border-radius:10px;
+    margin-bottom:10px;
+}
+
+@media(max-width:900px){
+    .grid{grid-template-columns:1fr;}
+}
 </style>
 </head>
+
 <body>
 <div class="container">
 
+<div class="hero">
 <h1>🎾 Tennis Partner Finder AI</h1>
+<p>Najdi spoluhráče podle města, úrovně a času.</p>
+</div>
+
+<div class="grid">
 
 <div class="card">
+<h2>Nový hráč</h2>
+
+{% if message %}
+<div class="success">{{ message }}</div>
+{% endif %}
+
 <form method="post">
-<input name="nickname" placeholder="Jméno" required>
+
+<label>Jméno</label>
+<input name="nickname" required>
+
+<label>Město</label>
 <select name="city" required>
-<option value="">Město</option>
+<option value="">Vyber město</option>
 <option>Praha</option>
 <option>Brno</option>
 </select>
-<input name="age" type="number" placeholder="Věk" required>
+
+<label>Věk</label>
+<input name="age" type="number" required>
+
+<label>Úroveň</label>
 <select name="level" required>
-<option value="">Úroveň</option>
+<option value="">Vyber úroveň</option>
 <option>Začátečník</option>
 <option>Středně pokročilý</option>
 <option>Pokročilý</option>
 <option>Profesionál</option>
 </select>
+
+<label>Kdy může hrát</label>
 <input name="available_time" type="datetime-local" required>
-<input name="email" type="email" placeholder="Email" required>
-<button>Uložit</button>
+
+<label>Email</label>
+<input name="email" type="email" required>
+
+<button>Uložit hráče</button>
+
 </form>
 </div>
 
 <div class="card">
-<h3>AI odpověď:</h3>
+<h2>AI odpověď</h2>
 <textarea readonly>{{ match_message }}</textarea>
 </div>
 
+</div>
+
 <div class="card">
-<h3>Hráči:</h3>
+<h2>Hráči</h2>
 {% for p in players %}
-<div>{{ p["nickname"] }} - {{ p["city"] }} - {{ p["level"] }}</div>
+<div>{{ p["nickname"] }} – {{ p["city"] }} – {{ p["level"] }}</div>
 {% endfor %}
 </div>
 
@@ -74,15 +160,15 @@ textarea { height:200px; }
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nickname TEXT,
-            city TEXT,
-            age INTEGER,
-            level TEXT,
-            available_time TEXT,
-            email TEXT
-        )
+    CREATE TABLE IF NOT EXISTS players (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nickname TEXT,
+        city TEXT,
+        age INTEGER,
+        level TEXT,
+        available_time TEXT,
+        email TEXT
+    )
     """)
     conn.commit()
     conn.close()
@@ -107,22 +193,18 @@ def find_match(player):
     conn.close()
 
     player_time = datetime.datetime.fromisoformat(player["available_time"])
-    best = None
-    best_diff = None
 
     for r in rows:
         t = datetime.datetime.fromisoformat(r["available_time"])
         diff = int(abs((t - player_time).total_seconds()) / 60)
 
         if diff <= 60:
-            if best_diff is None or diff < best_diff:
-                best = r
-                best_diff = diff
+            return r, diff
 
-    return best, best_diff
+    return None, None
 
-# 🔥 FORMÁLNÍ ODPOVĚĎ
-def local_message(match, diff):
+# 🔥 TADY JE OPRAVENÁ ODPOVĚĎ
+def ai_match_message(player, match, diff):
     if not match:
         return (
             "V tuto chvíli nebyl nalezen žádný vhodný hráč ke hře.\n"
@@ -134,67 +216,35 @@ def local_message(match, diff):
     time_str = dt.strftime("%H:%M")
 
     if diff == 0:
-        time_info = "Váš čas se shoduje."
+        time_text = "Váš čas se plně shoduje."
     else:
-        time_info = f"Čas se liší o {diff} minut."
+        time_text = f"Čas se liší o {diff} minut."
 
     return (
         "Byl nalezen vhodný hráč ke hře.\n\n"
         f"Město: {match['city']}\n"
         f"Úroveň: {match['level']}\n"
         f"Věk: {match['age']} let\n"
-        f"Termín: {date_str} v {time_str}\n\n"
-        f"{time_info}\n"
-        f"Kontaktujte hráče na e-mailu: {match['email']}"
+        f"Datum: {date_str}\n"
+        f"Hodina: {time_str}\n\n"
+        f"{time_text}\n"
+        f"Kontaktujte hráče: {match['email']}"
     )
 
-def ai_message(player, match, diff):
-    if not OPENAI_API_KEY:
-        return local_message(match, diff)
-
-    if not match:
-        prompt = (
-            "Napiš krátkou formální odpověď v češtině. "
-            "Nebyl nalezen žádný hráč ke hře."
-        )
-    else:
-        prompt = (
-            f"Byl nalezen hráč: {match['city']}, {match['level']}, {match['age']} let, "
-            f"{match['available_time']}, {match['email']}, rozdíl {diff} minut. "
-            "Napiš formální odpověď. "
-            "Začni: Byl nalezen vhodný hráč ke hře."
-        )
-
-    try:
-        response = requests.post(
-            f"{OPENAI_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": OPENAI_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=20
-        )
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
-    except:
-        return local_message(match, diff)
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET","POST"])
 def home():
     match_message = "Po uložení hráče se zobrazí výsledek."
+    message = None
 
     if request.method == "POST":
         d = request.form
 
         conn = get_conn()
         cur = conn.cursor()
+
         cur.execute("""
-            INSERT INTO players (nickname, city, age, level, available_time, email)
-            VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO players (nickname, city, age, level, available_time, email)
+        VALUES (?, ?, ?, ?, ?, ?)
         """, (
             d["nickname"],
             d["city"],
@@ -203,6 +253,7 @@ def home():
             d["available_time"],
             d["email"]
         ))
+
         player_id = cur.lastrowid
         conn.commit()
 
@@ -210,12 +261,14 @@ def home():
         conn.close()
 
         match, diff = find_match(player)
-        match_message = local_message(match, diff)
+        match_message = ai_match_message(player, match, diff)
+        message = "Hráč byl uložen."
 
     return render_template_string(
         HTML,
         players=fetch_players(),
-        match_message=match_message
+        match_message=match_message,
+        message=message
     )
 
 init_db()
