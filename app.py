@@ -5,7 +5,7 @@ import os
 
 app = Flask(__name__)
 
-DB_PATH = "/tmp/players.db"
+DB_PATH = "/data/players.db"
 
 HTML = """
 <!doctype html>
