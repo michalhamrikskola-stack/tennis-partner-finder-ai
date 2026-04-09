@@ -45,6 +45,7 @@ input, select, textarea {
     margin-top:5px;
     border-radius:10px;
     border:1px solid #ccc;
+    box-sizing:border-box;
 }
 
 button {
@@ -55,6 +56,8 @@ button {
     border-radius:10px;
     background:#2563eb;
     color:white;
+    cursor:pointer;
+    font-weight:bold;
 }
 
 textarea { height:250px; }
@@ -62,6 +65,18 @@ textarea { height:250px; }
 .player {
     padding:10px;
     border-bottom:1px solid #eee;
+}
+
+.success {
+    background:#e8f7ee;
+    color:#196c3b;
+    padding:10px;
+    border-radius:10px;
+    margin-bottom:10px;
+}
+
+@media(max-width:900px){
+    .grid{grid-template-columns:1fr;}
 }
 </style>
 </head>
@@ -77,6 +92,10 @@ textarea { height:250px; }
 <div class="grid">
 
 <div class="card">
+{% if message %}
+<div class="success">{{ message }}</div>
+{% endif %}
+
 <form method="post">
 
 <input name="nickname" placeholder="Jméno" required>
@@ -105,6 +124,7 @@ textarea { height:250px; }
 </div>
 
 <div class="card">
+<h2>AI odpověď</h2>
 <textarea readonly>{{ match_message }}</textarea>
 </div>
 
@@ -155,7 +175,8 @@ def fetch_players():
 def find_match(player):
     conn = get_conn()
     rows = conn.execute("""
-    SELECT * FROM players WHERE id != ? AND city = ? AND level = ?
+    SELECT * FROM players
+    WHERE id != ? AND city = ? AND level = ?
     """, (player["id"], player["city"], player["level"])).fetchall()
     conn.close()
 
@@ -172,22 +193,35 @@ def find_match(player):
 
 def ai_match_message(player, match, diff):
     if not match:
-        return "Nebyl nalezen žádný hráč."
+        return (
+            "V tuto chvíli nebyl nalezen žádný vhodný hráč ke hře.\n"
+            "Zkuste upravit termín nebo to opakujte později."
+        )
 
     dt = datetime.datetime.fromisoformat(match["available_time"])
+    date_str = dt.strftime("%d.%m.%Y")
+    time_str = dt.strftime("%H:%M")
 
-    return f"""Byl nalezen hráč:
+    if diff == 0:
+        time_text = "Váš čas se plně shoduje."
+    else:
+        time_text = f"Čas se liší o {diff} minut."
 
-Město: {match['city']}
-Úroveň: {match['level']}
-Čas: {dt.strftime('%H:%M')}
+    return (
+        "Byl nalezen vhodný hráč ke hře.\n\n"
+        f"Město: {match['city']}\n"
+        f"Úroveň: {match['level']}\n"
+        f"Věk: {match['age']} let\n"
+        f"Datum: {date_str}\n"
+        f"Hodina: {time_str}\n\n"
+        f"{time_text}\n"
+        f"Kontaktujte hráče: {match['email']}"
+    )
 
-Kontakt: {match['email']}
-"""
-
-@app.route("/", methods=["GET","POST"])
+@app.route("/", methods=["GET", "POST"])
 def home():
     match_message = "Výsledek se zobrazí zde"
+    message = None
 
     if request.method == "POST":
         d = request.form
@@ -210,17 +244,45 @@ def home():
         pid = cur.lastrowid
         conn.commit()
 
-        player = conn.execute("SELECT * FROM players WHERE id=?", (pid,)).fetchone()
+        player = conn.execute("SELECT * FROM players WHERE id = ?", (pid,)).fetchone()
         conn.close()
 
         match, diff = find_match(player)
         match_message = ai_match_message(player, match, diff)
+        message = "Hráč byl uložen."
 
     return render_template_string(
         HTML,
         players=fetch_players(),
-        match_message=match_message
+        match_message=match_message,
+        message=message
     )
+
+@app.route("/ping")
+def ping():
+    return "pong"
+
+@app.route("/db")
+def show_db():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT * FROM players").fetchall()
+    conn.close()
+
+    output = "<h1>Databáze hráčů</h1>"
+    for r in rows:
+        output += f"""
+        <p>
+        ID: {r[0]}<br>
+        Jméno: {r[1]}<br>
+        Město: {r[2]}<br>
+        Věk: {r[3]}<br>
+        Úroveň: {r[4]}<br>
+        Čas: {r[5]}<br>
+        Email: {r[6]}
+        </p>
+        <hr>
+        """
+    return output
 
 init_db()
 
