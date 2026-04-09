@@ -1,13 +1,128 @@
 from flask import Flask, request, render_template_string
 import sqlite3
 import datetime
-import os
 
 app = Flask(__name__)
 
 DB_PATH = "/data/players.db"
 
-HTML = """... (TVŮJ HTML NECHÁVÁM STEJNÝ, nemusíš řešit) ...
+HTML = """
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tennis Partner Finder AI</title>
+
+<style>
+body { margin:0; font-family:Arial; background:#f4f7fb; }
+.container { max-width:1100px; margin:auto; padding:20px; }
+
+.hero {
+    background:linear-gradient(135deg,#0f172a,#1e3a8a);
+    color:white;
+    border-radius:20px;
+    padding:25px;
+    margin-bottom:20px;
+}
+
+.grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.card {
+    background:white;
+    border-radius:18px;
+    padding:20px;
+    box-shadow:0 10px 25px rgba(0,0,0,0.08);
+}
+
+input, select, textarea {
+    width:100%;
+    padding:12px;
+    margin-top:5px;
+    border-radius:10px;
+    border:1px solid #ccc;
+}
+
+button {
+    margin-top:15px;
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:10px;
+    background:#2563eb;
+    color:white;
+}
+
+textarea { height:250px; }
+
+.player {
+    padding:10px;
+    border-bottom:1px solid #eee;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="hero">
+<h1>🎾 Tennis Partner Finder AI</h1>
+<p>Najdi spoluhráče podle města, úrovně a času</p>
+</div>
+
+<div class="grid">
+
+<div class="card">
+<form method="post">
+
+<input name="nickname" placeholder="Jméno" required>
+
+<select name="city" required>
+<option value="">Město</option>
+<option>Praha</option>
+<option>Brno</option>
+</select>
+
+<input name="age" type="number" placeholder="Věk" required>
+
+<select name="level" required>
+<option value="">Úroveň</option>
+<option>Začátečník</option>
+<option>Středně pokročilý</option>
+<option>Pokročilý</option>
+<option>Profesionál</option>
+</select>
+
+<input name="available_time" type="datetime-local" required>
+<input name="email" placeholder="Email" required>
+
+<button>Uložit</button>
+</form>
+</div>
+
+<div class="card">
+<textarea readonly>{{ match_message }}</textarea>
+</div>
+
+</div>
+
+<div class="card">
+<h2>Hráči</h2>
+{% for p in players %}
+<div class="player">
+<b>{{ p["nickname"] }}</b> – {{ p["city"] }} – {{ p["level"] }}<br>
+🕒 {{ p["available_time"].replace("T"," ") }}
+</div>
+{% endfor %}
+</div>
+
+</div>
+</body>
+</html>
 """
 
 def init_db():
@@ -40,8 +155,7 @@ def fetch_players():
 def find_match(player):
     conn = get_conn()
     rows = conn.execute("""
-        SELECT * FROM players
-        WHERE id != ? AND city = ? AND level = ?
+    SELECT * FROM players WHERE id != ? AND city = ? AND level = ?
     """, (player["id"], player["city"], player["level"])).fetchall()
     conn.close()
 
@@ -58,35 +172,22 @@ def find_match(player):
 
 def ai_match_message(player, match, diff):
     if not match:
-        return (
-            "V tuto chvíli nebyl nalezen žádný vhodný hráč ke hře.\n"
-            "Zkuste upravit termín nebo to opakujte později."
-        )
+        return "Nebyl nalezen žádný hráč."
 
     dt = datetime.datetime.fromisoformat(match["available_time"])
-    date_str = dt.strftime("%d.%m.%Y")
-    time_str = dt.strftime("%H:%M")
 
-    if diff == 0:
-        time_text = "Váš čas se plně shoduje."
-    else:
-        time_text = f"Čas se liší o {diff} minut."
+    return f"""Byl nalezen hráč:
 
-    return (
-        "Byl nalezen vhodný hráč ke hře.\n\n"
-        f"Město: {match['city']}\n"
-        f"Úroveň: {match['level']}\n"
-        f"Věk: {match['age']} let\n"
-        f"Datum: {date_str}\n"
-        f"Hodina: {time_str}\n\n"
-        f"{time_text}\n"
-        f"Kontaktujte hráče: {match['email']}"
-    )
+Město: {match['city']}
+Úroveň: {match['level']}
+Čas: {dt.strftime('%H:%M')}
+
+Kontakt: {match['email']}
+"""
 
 @app.route("/", methods=["GET","POST"])
 def home():
-    match_message = "Po uložení hráče se zobrazí výsledek."
-    message = None
+    match_message = "Výsledek se zobrazí zde"
 
     if request.method == "POST":
         d = request.form
@@ -106,45 +207,20 @@ def home():
             d["email"]
         ))
 
-        player_id = cur.lastrowid
+        pid = cur.lastrowid
         conn.commit()
 
-        player = conn.execute("SELECT * FROM players WHERE id=?", (player_id,)).fetchone()
+        player = conn.execute("SELECT * FROM players WHERE id=?", (pid,)).fetchone()
         conn.close()
 
         match, diff = find_match(player)
         match_message = ai_match_message(player, match, diff)
-        message = "Hráč byl uložen."
 
     return render_template_string(
         HTML,
         players=fetch_players(),
-        match_message=match_message,
-        message=message
+        match_message=match_message
     )
-
-# 🔥 TADY JE TA DATABÁZE (NOVĚ)
-@app.route("/db")
-def show_db():
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT * FROM players").fetchall()
-    conn.close()
-
-    output = ""
-    for r in rows:
-        output += f"""
-        <p>
-        ID: {r[0]}<br>
-        Jméno: {r[1]}<br>
-        Město: {r[2]}<br>
-        Věk: {r[3]}<br>
-        Úroveň: {r[4]}<br>
-        Čas: {r[5]}<br>
-        Email: {r[6]}
-        </p>
-        <hr>
-        """
-    return output
 
 init_db()
 
