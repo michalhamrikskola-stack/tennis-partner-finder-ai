@@ -10,3 +10,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL}
       OPENAI_MODEL: ${OPENAI_MODEL:-gemma3:27b}
+    volumes:
+      - data:/data
+
+  dummy-db:
+    image: busybox
+    command: sleep 999999
+
+volumes:
+  data:
